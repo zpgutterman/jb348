@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+	xmlns:ui="http://java.sun.com/jsf/facelets"
+	xmlns:f="http://java.sun.com/jsf/core"
+	xmlns:h="http://java.sun.com/jsf/html"
+	template="/WEB-INF/templates/default.xhtml">
+	<ui:define name="title">
+Security Domain Test App
+    </ui:define>
+	<ui:define name="application_name">
+    	Security Domain
+    </ui:define>
+	<ui:define name="content">
+  Login failed.
+    <h:form id="errorForm">
+        <h:link value="Back" outcome="login" />
+    </h:form>
+	</ui:define>
+</ui:composition>
