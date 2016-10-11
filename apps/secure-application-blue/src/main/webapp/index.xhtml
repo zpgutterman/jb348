@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+	xmlns:ui="http://java.sun.com/jsf/facelets"
+	xmlns:f="http://java.sun.com/jsf/core"
+	xmlns:h="http://java.sun.com/jsf/html"
+	template="/WEB-INF/templates/default.xhtml">
+	<ui:define name="title">
+Security Test Application -- Blue
+    </ui:define>
+	<ui:define name="application_name">
+    	Security Blue
+    </ui:define>
+	<ui:define name="content">
+		<h1>Security Test Application -- Red</h1>
+		<ul>
+			<li>This is a simple web app to demonstrate form authentication and authorization.</li>
+			<li>This app also displays the credentials and roles of the logged in user</li>
+		</ul>
+		<br />
+
+		<p>
+			Username: <strong><h:outputText id="secureUserName" value="#{secure.user}" /></strong>
+		</p>
+		<p>
+			Admin?: <strong><h:outputText id="isAdmin" value="#{secure.admin}" /></strong>
+		</p>
+		<p>
+		<h:form>
+		 <h:commandLink id="logoutButton" value="Logout" action="#{login.logout}"/>
+		 <br />
+		 <h:commandLink value="Secure Page" action="secure" rendered="#{secure.admin}" />
+		 </h:form>
+		 </p>
+	</ui:define>
+</ui:composition>
