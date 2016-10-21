@@ -1,0 +1,177 @@
+#!/bin/bash
+#
+# Copyright 2015 Red Hat, Inc.
+#
+# NAME
+#     lab-example - grading/setup script for JB348
+#
+# SYNOPSIS
+#     lab-example {setup|grade|solve|reset}
+#
+#        setup   - configures 
+#        grade   - no grading done for this lab
+#        solve   - download 
+#        reset   - remove 
+#
+#     All functions only work on workstation
+#
+# DESCRIPTION
+#     This script is another example of the proper way to do stuff on remote machines (serverX)
+#
+# CHANGELOG
+#   * Thu Mar 17 2016 Fernando Lozano <fernando@lozano.redhat.com>
+#   - Created from lab-example to sample remote execution with improvements by Geroge Hacker
+#   * Thu Nov 12 2015 Chen Chang <cchang@redhat.com>
+#   - modified grading to use grading_main_program function
+#   * Thu Oct 29 2015 George Hacker <ghacker@redhat.com>
+#   - original code
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Some of the following vars could be moved to the course-specific shlib
+
+client1='servera'
+client2='serverb'
+
+runuser="runuser - student -c"
+
+labs="/home/student/JB348/labs"
+materials='http://materials.example.com'
+
+this='example-scp'
+origin="${labs}/${this}/testfile"
+destination='/tmp/remotetest'
+
+
+# This defines which subcommands are supported (solve, reset, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(setup grade solve reset)
+
+
+# Additional functions for this grading script
+
+
+function lab_setup {
+
+  echo
+  echo 'Configuring workstation for this example lab:'
+  echo
+
+  echo ' · Downloading lab files to'
+  pad  "   ${labs}/${this}"
+  rm -rf ${labs}/${this} &>/dev/null
+  mkdir -p ${labs}/${this}
+  cd ${labs}/${this}
+  if ${curl_save} ${materials}/${this}/testfile &>/dev/null
+  then
+    chown -R student:student ${labs}/${this} &>/dev/null
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+  
+  echo
+}
+
+
+function lab_grade {
+
+  echo
+  echo 'Grading lab steps:'
+  echo
+
+  host_reachable ${client1}
+  host_reachable ${client2}
+  
+  cmd1="test -r ${destination}"
+
+  # ${ssh} and ${scp} are pre-defined
+  
+  pad " · Verifying ${destination} exists on ${client1}"
+  if ${ssh} ${client1} "${runuser} '${cmd1}'" &> /dev/null
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  pad " · Verifying ${destination} exists on ${client2}"
+  if ${ssh} ${client2} "${runuser} '${cmd1}'" &> /dev/null
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  echo
+
+  if [ $fail_count -eq 0 ]
+  then
+    pad "All checks passed: lab grade status is"
+    print_PASS
+  else
+    pad "At least one check failed: lab grade status is "
+    print_FAIL
+  fi
+
+  echo
+}
+
+
+function lab_solve {
+
+  lab_reset
+  lab_setup
+
+  echo
+  echo 'Performing lab steps:'
+  echo
+
+  echo " · Copying ${origin}"
+  pad  "   to ${client1} and ${client2}"
+  if ${scp} ${origin} student@${client1}:${destination} &> /dev/null &&
+     ${scp} ${origin} student@${client2}:${destination} &> /dev/null
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  echo
+}
+
+
+function lab_reset {
+
+  echo
+  echo 'Undoing lab steps:'
+  echo
+
+  host_reachable ${client1}
+  host_reachable ${client2}
+
+  pad " · Removing ${destination} on ${client1} and ${client2}"
+  cmd1="rm -f ${destination}"
+  ${ssh} ${client1} "${cmd1}" &> /dev/null
+  ${ssh} ${client2} "${cmd1}" &> /dev/null
+  print_SUCCESS
+
+  echo ' · Removing lab folder'
+  pad  "   ${labs}/${this}"
+  rm -rf ${labs}/${this} &>/dev/null
+  print_SUCCESS
+
+  echo
+}
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/labtool.shlib
+source /usr/local/lib/labtool.jb348.shlib
+
+grading_main_program "$@"

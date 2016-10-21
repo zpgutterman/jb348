@@ -1,0 +1,104 @@
+#!/bin/bash
+#
+# Copyright 2016 Red Hat, Inc.
+#
+# NAME
+#     lab-example - grading/setup script for JB248
+#
+# SYNOPSIS
+#     lab-example {setup|grade|solve|reset}
+#
+#        setup   - configures 
+#        grade   - no grading done for this lab
+#        solve   - download 
+#        reset   - remove 
+#
+#     All functions only work on workstation
+#
+# DESCRIPTION
+#     This script configures XXXX
+#
+# CHANGELOG
+#   * Thu Nov 12 2015 Chen Chang <cchang@redhat.com>
+#   - modified grading to use grading_main_program function
+#   * Thu Oct 29 2015 George Hacker <ghacker@redhat.com>
+#   - original code
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+# Initialize and set some variables
+run_as_root='true'
+
+target='workstation'
+
+# This defines which subcommands are supported (solve, reset, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(setup grade solve reset)
+
+# Additional functions for this grading script
+
+function print_usage {
+  local problem_name=$(basename $0 | sed -e 's/^lab-//')
+  cat << EOF
+This script controls the setup and grading of this lab.
+Usage: lab ${problem_name} COMMAND
+       lab ${problem_name} -h|--help
+
+COMMAND is one of: ${valid_commands[@]}
+
+EOF
+}
+
+function lab_setup {
+
+  echo
+  echo "Setting up ${target} for lab exercise work (just kidding):"
+  download_version_war /tmp
+  download_example_war /tmp
+  download_bookstore_war /tmp
+  download_mysql_bookstore_war /tmp
+  download_welcome_war /tmp
+  download_dstest_war /tmp
+  download_cluster_war /tmp
+  download_logtest_war /tmp
+
+
+  echo
+  echo "This is just an example of failure"
+  echo
+}
+
+function lab_grade {
+
+  echo
+  echo "This is an exploratory lab - no grading functionality provided."
+  echo
+
+}
+
+function lab_solve {
+
+  lab_reset
+  lab_setup
+
+  echo -n '  Solving the lab for you (actually, nothing is being done) .......... '
+    print_SUCCESS
+
+  echo
+}
+
+function lab_reset {
+
+  echo -n '  Remove chrony Puppet module ................... '
+  print_SUCCESS
+
+  echo
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/labtool.shlib
+source /usr/local/lib/labtool.jb348.shlib
+
+grading_main_program "$@"

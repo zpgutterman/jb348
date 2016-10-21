@@ -1,0 +1,1753 @@
+#
+# Copyright 2016 Red Hat, Inc.
+#
+# NAME
+#     labtool.jb348.shlib - lab grading script jb348 function library
+#
+# SYNOPSIS
+#     Add the following line at the top of your script:
+#
+#        source /path/to/labtool.jb348.shlib
+#
+#     *after* the source of the generic labtool.shlib
+#
+# DESCRIPTION
+#
+# CHANGELOG
+#   * Thu Oct 21 2016 Zach Gutterman <zgutterm@redhat.com>
+#   - Initial revision
+
+
+opt_dir="/opt"
+jboss_home="${opt_dir}/jboss-eap-7.0"
+curl_save='curl -sO'
+curl='curl -s'
+user="student"
+jb348_home="/home/${user}/JB348"
+labs="${jb348_home}/labs"
+materials='http://materials.example.com'
+contents='http://content.example.com'
+installers_iso="${contents}/eap7.0/x86_64/installers"
+installer_file="jboss-eap-7.0.0-installer.jar"
+eap_installer="${installers_iso}/${installer_file}"
+domain_directory="${opt_dir}/domain"
+timeout=45
+
+# NAME
+#     pass_if_equal
+#
+# USAGE
+#     pass_if_equal param1 param2
+#
+# DESCRIPTION
+#	  check if two arguments are equal.
+#
+# PARAMETERS
+# 
+# PARAMETER: param1
+# PARAMETER: param2
+# 
+# RETURNS
+# no return
+#
+# RUNS:
+# print_FAIL if they are different
+# print_PASS if the are equal
+
+function pass_if_equal
+{
+  if [ "$1" = "$2" ]; then
+    print_PASS
+  else
+    print_FAIL
+  fi
+}
+
+# NAME
+#     pass_if_NOT_equal
+#
+# USAGE
+#     pass_if_NOT_equal param1 param2
+#
+# DESCRIPTION
+#	  check if two arguments are different.
+#
+# PARAMETERS
+# 
+# PARAMETER: param1
+# PARAMETER: param2
+# 
+# RETURNS
+# no return
+#
+# RUNS:
+# print_FAIL if they are equal
+# print_PASS if the are different
+
+
+function pass_if_NOT_equal
+{
+  if [ "$1" = "$2" ]; then
+    print_FAIL
+  else
+    print_PASS
+  fi
+}
+
+
+function grep_xml {
+  local xml_file="$1"
+  tmp="$(mktemp)"
+  cat "${xml_file}" > "${tmp}" 2>/dev/null
+  while [ "$2" != "" ]; do
+    echo -n "*** $2: "
+    grep "$2" "${tmp}"
+    grep "$2" "${tmp}" > "${tmp}" &>/dev/null
+    status="$?"
+    echo "### $?"
+    shift
+  done
+  return $status
+}
+
+
+function mask_xmlns {
+  local xmlfile=$1
+  newfile="$(mktemp)"
+  sed 's/xmlns="\(.*\)"/xxxns="\1"/' "${xmlfile}" > "${newfile}" 2>/dev/null
+  echo "${newfile}"
+}
+
+
+
+
+
+
+#######################
+
+# NAME
+#     is_eap_installed
+#
+# USAGE
+#     is_eap_installed
+#     is_eap_installed <directory>
+#
+# DESCRIPTION
+#	  check if EAP is installed at /opt in a directory passed as a parameter. If no parameter
+#     is passed, then it will look for /opt/jboss-eap-7.0
+#
+# PARAMETERS
+# 
+# directory where EAP is installed
+# 
+# RETURNS
+# 0 - if EAP is installed at /opt/jboss-eap-7.0
+# 1 - if EAP is NOT installed at /opt/jboss-eap-7.0
+
+
+function is_eap_installed
+{
+  directory=${1:-jboss-eap-7.0}
+  local count=$(ls /opt | grep $directory | wc -l)
+  if  [ $count -eq 1 ]; then
+	return 0
+  else
+	return 1
+  fi
+  
+}
+
+
+#
+## DESCRIPTION
+##     check if EAP is installed at /opt/jboss-eap-7.0 on a remote server
+##
+## PARAMETERS
+## 
+## Remote server IP address
+## Directory: the directory where the Server is installed. If not passed, it will look for /opt/jboss-eap-7.0
+## 
+## RETURNS
+## 0 - if EAP is installed on Remote Server IP address at <directory>
+## 1 - if EAP is NOT installed on Remote Server IP address at <directory>
+
+
+function is_eap_installed_remote
+{
+  local server=${1}
+  local directory=${2:-jboss-eap-7.0}
+  local count=$(ssh root@$server ls /opt | grep $directory | wc -l)
+	if  [ $count -eq 1 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# NAME
+#     is_eap_accessible_on_port
+#
+# USAGE
+#     is_eap_accessible_on_port
+#
+#     is_eap_accessible_on_port <portNumber>
+#
+# DESCRIPTION
+#	  check if EAP is listening to requests on port <portNumber>. 
+#     If no port is passed as a parameter, 9990 will be used as the default value.
+#
+# PARAMETERS
+#     PARAMETER: portNumber: The port number where EAP management console will be accessible.
+# 
+# RETURNS
+# 0 - if EAP is started
+# 1 - if EAP is NOT started
+
+
+function is_eap_accessible_on_port
+{
+  local port=${1:-9990}
+  local count=$(netstat -tnlp | grep $1 | grep LISTEN | wc -l)
+  if [ $count -eq 1 ]; then
+	return 0
+  else
+	return 1
+  fi
+}
+
+# NAME
+#     is_standalone_started_on_port
+#
+# USAGE
+#     is_standalone_started_on_port
+#
+#     is_standalone_started_on_port <portNumber>
+#
+# DESCRIPTION
+#	  check if an EAP standalone server is running on localhost port <portNumber>. 
+#     If no port is passed as a parameter, 9990 will be used as the default value.
+#     This function will check if the EAP is running using a CLI command.
+#
+# PARAMETERS
+#     PARAMETER: portNumber: The number where EAP management console will be accessible.
+# No parameters
+# 
+# RETURNS
+# 0 - if EAP is started
+# 1 - if EAP is NOT started
+
+function is_standalone_started_on_port
+{
+  local port=${1:-9990}
+  local count=$(run_cli_command_at $port ":read-attribute(name=server-state)" | grep running | wc -l)
+  if [ $count -eq 1 ]; then
+	return 0
+  else
+	return 1
+  fi
+}
+
+# NAME
+#     is_host_server_started
+#
+# USAGE
+#     is_standalone_started_on_port
+#
+#     is_standalone_started_on_port <portNumber>
+#
+# DESCRIPTION
+#	  check if an EAP standalone server is running on port <portNumber>. 
+#     If no port is passed as a parameter, 9990 will be used as the default value.
+#     This function will check if the EAP is running using a CLI command.
+#
+# PARAMETERS
+#     PARAMETER: portNumber: The number where EAP management console will be accessible.
+# No parameters
+# 
+# RETURNS
+# 0 - if EAP is started
+# 1 - if EAP is NOT started
+
+function is_host_server_started
+{
+  local port=${4:-9990}
+  local hostname=${1}
+  local servername=${2}
+  local ip=${3:-localhost}
+  local count=$(run_cli_command_ip $ip $port "/host=${hostname}/server=${servername}:read-attribute(name=server-state)" | grep running | wc -l)
+  if [ $count -eq 1 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# NAME
+#     is_host_server_not_started
+#
+# USAGE
+#     is_host_server_not_started <hostname> <servername> <controllerIP> <controller_port>
+#
+#     is_host_server_not_started <hostname> <servername>
+#
+# DESCRIPTION
+#	  check if a server on a managed domain is NOT running. 
+#     If no port is passed as a parameter, 9990 will be used as the default value.
+#     This function will check if the EAP is running using a CLI command.
+#
+# PARAMETERS
+#     PARAMETER: hostname: The host controller name where the server should be evaluated.
+#	  PARAMETER: servername: The name of the server.
+#	  PARAMETER: controllerIP: The IP address from the domain controller responsible for managing the server. If nothing is provided, the script will consider it as localhost.
+#	  PARAMETER: controller_port: The port where the management console from the domain controller is running. If nothing is provided, the script will consider it as 9990
+# No parameters
+# 
+# RETURNS
+# 0 - if EAP is NOT started
+# 1 - if EAP is started
+
+
+function is_host_server_not_started
+{
+  local port=${4:-9990}
+  local hostname=${1}
+  local servername=${2}
+  local ip=${3:-localhost}
+  #echo "/host=${hostname}/server=${servername}:read-attribute(name=server-state)"
+  local count=$(run_cli_command_ip $ip $port "/host=${hostname}/server=${servername}:read-attribute(name=server-state)" | grep running | wc -l)
+  if [ $count -eq 0 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# NAME
+#     is_domain_started_on_ip_on_port
+#
+# USAGE
+#     is_domain_started_on_ip_on_port <ip> <controller_port>
+#
+#     is_domain_started_on_ip_on_port
+#
+# DESCRIPTION
+#	  check if a domain controller on a managed domain is running. 
+#     If no port is passed as a parameter, 9990 will be used as the default value. If no IP address is provided the function will check for the localhost.
+#     This function will check if the domain controller is running using a CLI command.
+#
+# PARAMETERS
+#	  PARAMETER: ip: The IP address from the domain controller. If nothing is provided, the script will consider it as localhost.
+#	  PARAMETER: controller_port: The port where the management console from the domain controller is running. If nothing is provided, the script will consider it as 9990
+# No parameters
+# 
+# RETURNS
+# 0 - if the domain controller is started
+# 1 - if the domain controller is NOT started
+
+
+function is_domain_started_on_ip_on_port
+{
+  local ip=${1:-localhost}
+  local port=${2:-9990}
+  local count=$(run_cli_command_ip $ip $port ":read-attribute(name=local-host-name)" | grep master | wc -l)
+  if [ $count -eq 1 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# NAME
+#     is_domain_not_started_on_ip_on_port
+#
+# USAGE
+#     is_domain_not_started_on_ip_on_port <ip> <controller_port>
+#
+#     is_domain_not_started_on_ip_on_port
+#
+# DESCRIPTION
+#	  check if a domain controller on a managed domain is  NOT running. 
+#     If no port is passed as a parameter, 9990 will be used as the default value. If no IP address is provided the function will check for the localhost.
+#     This function will check if the domain controller is NOT running using a CLI command.
+#
+# PARAMETERS
+#	  PARAMETER: ip: The IP address from the domain controller. If nothing is provided, the script will consider it as localhost.
+#	  PARAMETER: controller_port: The port where the management console from the domain controller is running. If nothing is provided, the script will consider it as 9990
+# No parameters
+# 
+# RETURNS
+# 0 - if the domain controller is NOT started
+# 1 - if the domain controller is started
+
+
+function is_domain_not_started_on_ip_on_port
+{
+  local ip=${1:-localhost}
+  local port=${2:-9990}
+  local count=$(run_cli_command_ip $ip $port ":read-attribute(name=local-host-name)" | grep master | wc -l)
+  if [ $count -eq 0 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+
+# NAME
+#     is_host_started_on_ip_on_port
+#
+# USAGE
+#     is_host_started_on_ip_on_port <hostname> <ip> <controller_port>
+#
+# DESCRIPTION
+#	  check if a host controller on a managed domain is running. 
+#     This function will check if the host controller is running using a CLI command.
+#
+# PARAMETERS
+#	  PARAMETER: hostname: The name of the host from the a managed domain.
+#	  PARAMETER: ip: The IP address from the domain controller. 
+#	  PARAMETER: controller_port: The port where the management console from the domain controller is running.
+# No parameters
+# 
+# RETURNS
+# 0 - if the domain controller is NOT started
+# 1 - if the domain controller is started
+
+
+function is_host_started_on_ip_on_port
+{
+  local host=${1}
+  local ip=${2:-localhost}
+  local port=${3:-9990}
+  local count=$(run_cli_command_ip $ip $port ":read-resource" | grep $host | wc -l)
+  if [ $count -eq 1 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function is_host_not_started_on_ip_on_port
+{
+  local host=${1}
+  local ip=${2:-localhost}
+  local port=${3:-9990}
+  local count=$(run_cli_command_ip $ip $port ":read-resource" | grep $host | wc -l)
+  if [ $count -eq 0 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# NAME
+#     is_standalone_not_started_on_port
+#
+# USAGE
+#     is_standalone_not_started_on_port <controller_port>
+#     is_standalone_not_started_on_port 
+#
+# DESCRIPTION
+#	  check if a standalone server is NOT runnning on localhost is running. 
+#     This function will check if the standalone server is NOT running using a CLI command.
+#
+# PARAMETERS
+#	  PARAMETER: controller_port: The port where the management console from the standalone server is running.
+# No parameters
+# 
+# RETURNS
+# 0 - if the standalone server is NOT started
+# 1 - if the standalone server is started
+
+
+function is_standalone_not_started_on_port
+{
+  local port=${1:-9990}
+  local count=$(run_cli_command_at $port ":read-attribute(name=server-state)" | grep running | wc -l)
+  if [ $count -eq 0 ]; then
+	return 0
+  else
+	return 1
+  fi
+}
+
+
+# NAME
+#     wait_for_standalone_to_start
+#
+# USAGE
+#     wait_for_standalone_to_start <controller_port>
+#
+# DESCRIPTION
+#	  wait until the standalone server is started on localhost. 
+#     This function will wait until the standalone server is running using a CLI command.
+#
+# PARAMETERS
+#	  PARAMETER: controller_port: The port where the management console from the standalone server is running.
+# No parameters
+# 
+# RETURNS
+# 1 - If the standalone server does not start
+
+
+
+function wait_for_standalone_to_start
+{
+  local port=${1:-9990}
+  local count=0
+  while  is_standalone_not_started_on_port $port && [ $count -le $timeout ]  
+  do
+	echo -n .
+	sleep 1
+	((count++))
+  done
+  if [ $count -ge $timeout ]; then
+	echo "Server could not be started."
+	return 1
+  else
+	return 0
+  fi
+
+}
+
+# NAME
+#     wait_for_domain_to_start_ip
+#
+# USAGE
+#     wait_for_domain_to_start_ip <ip> <controller_port>
+#
+# DESCRIPTION
+#	  wait until the domain controller is started on <ip>. 
+#     This function will wait until the domain controller is running using a CLI command.
+#
+# PARAMETERS
+#	  PARAMETER: ip: The IP address where the management console from the domain controller is running.
+#	  PARAMETER: controller_port: The port where the management console from the domain controller is running.
+# 
+# RETURNS
+# no return
+
+
+function wait_for_domain_to_start_ip
+{
+  local ip=${1:-localhost}
+  local port=${2:-9990}
+  local count=0
+  while  is_domain_not_started_on_ip_on_port $ip $port && [ $count -le $timeout ]
+  do
+    echo -n .
+    sleep 1
+	((count++))
+  done
+  if [ $count -ge $timeout ]; then
+	echo "Server could not be started."
+	return 1
+  else
+	return 0
+  fi
+}
+
+# NAME
+#     wait_for_host_to_start
+#
+# USAGE
+#     wait_for_host_to_start <host> <ip> <controller_port>
+#     wait_for_host_to_start <host> 
+#
+# DESCRIPTION
+#	  wait until the host controller named <host> is started on <ip> at port <controller_port>. 
+#     This function will wait until the host controller is running using a CLI command.
+#
+# PARAMETERS
+#	  PARAMETER: host: The host controller name from a managed domain.
+#	  PARAMETER: ip: The IP address where the management console from the domain controller is running. If no IP is provided, localhost will be used.
+#	  PARAMETER: controller_port: The port where the management console from the domain controller is running. If no controller_port is provided, 9990 will be used.
+# 
+# RETURNS
+# 1 - if the host did not start.
+# 0 - if the host was started.
+
+
+function wait_for_host_to_start
+{
+  local host=${1}
+  local ip=${2:-localhost}
+  local port=${3:-9990}
+  local count=0
+  while  is_host_not_started_on_ip_on_port $host $ip $port && [ $count -le $timeout ]
+  do
+    echo -n .
+    sleep 1
+	((count++))
+  done
+  if [ $count -ge $timeout ]; then
+	echo "Host ${host} could not be started."
+	return 1
+  else
+	return 0
+  fi
+}
+
+# NAME
+#     wait_for_host_server_to_start
+#
+# USAGE
+#     wait_for_host_server_to_start <host> <servername> <ip> <controller_port>
+#     wait_for_host_server_to_start <host> <servername>
+#
+# DESCRIPTION
+#	  wait until the server named <servername> from the host controller named <host> is started on domain controller's <ip> at domain controller's port <controller_port>. 
+#     This function will wait until the host controller is running using a CLI command.
+#
+# PARAMETERS
+#	  PARAMETER: host: The host controller name from a managed domain.
+#	  PARAMETER: servername: The server name from the host controller that should be stopped.
+#	  PARAMETER: ip: The IP address where the management console from the domain controller is running. If no IP is provided, localhost will be used.
+#	  PARAMETER: controller_port: The port where the management console from the domain controller is running. If no controller_port is provided, 9990 will be used.
+# 
+# RETURNS
+# 1 - if the deployment failed
+# 0 - if the deployment succeeded
+
+function wait_for_host_server_to_start
+{
+  local host=${1}
+  local servername=${2}
+  local ip=${3:-localhost}
+  local port=${4:-9990}
+  local count=0
+  while is_host_server_not_started $host $servername $ip $port && [ $count -le $timeout ]
+  do
+    echo -n .
+    sleep 1
+	((count++))
+  done
+ if [ $count -ge $timeout ]; then
+	echo "Host ${host} could not be started."
+	return 1
+  else
+	return 0
+  fi
+}
+
+# NAME
+#     wait_for_example_war_to_deploy
+#
+# USAGE
+#     wait_for_example_war_to_deploy <ip> <port>
+#
+# DESCRIPTION
+#	  wait until the example.war app is deployed on a specific server <ip> and <port> 
+#     This function will wait until the example.war is running using a CLI command. if it reaches the timeout, the function will generate a message.
+#
+# PARAMETERS
+#	  PARAMETER: ip: The IP address where the example.war app is deployed.
+#	  PARAMETER: port: The port where the example.war can be accessed.
+# 
+# RETURNS
+# 1 - if the deployment failed
+# 0 - if the deployment succeeded
+
+
+function wait_for_example_war_to_deploy
+{
+  local ip=${1:-localhost}
+  local port=$2
+  local count=0
+  while is_example_not_available_at $port $ip && [ $count -le $timeout ]
+  do
+    echo -n .
+    sleep 1
+	((count++))
+  done
+  if [ $count -ge $timeout ]; then
+	echo "example.war could not be started."
+	return 1
+  else
+	return 0
+  fi
+}
+
+
+# NAME
+#     wait_for_version_war_to_deploy
+#
+# USAGE
+#     wait_for_version_war_to_deploy <ip> <port>
+#
+# DESCRIPTION
+#	  wait until the version.war app is deployed on a specific server <ip> and <port> 
+#     This function will wait until the version.war is running using a CLI command. if it reaches the timeout, the function will generate a message.
+#
+# PARAMETERS
+#	  PARAMETER: ip: The IP address where the example.war app is deployed.
+#	  PARAMETER: port: The port where the example.war can be accessed.
+# 
+# RETURNS
+# 1 - if the deployment failed
+# 0 - if the deployment succeeded
+
+function wait_for_version_war_to_deploy
+{
+  local ip=${1:-localhost}
+  local port=$2
+  local count=0
+  while is_version_not_available_at $port $ip && [ $count -le $timeout ]
+  do
+    echo -n .
+    sleep 1
+	((count++))
+  done
+  if [ $count -ge $timeout ]; then
+	echo "version.war could not be started."
+	return 1
+  else
+	return 0
+  fi
+}
+
+
+# NAME
+#     run_cli_command_at
+#
+# USAGE
+#     run_cli_command_at <port> <command>
+#
+# DESCRIPTION
+#	  executes a command on a controller started at localhost <controller_port>. 
+#
+# PARAMETERS
+#	  PARAMETER: port: The port where the management console is running.
+#	  PARAMETER: command: The command that will be executed on a server. Put the command between double quotes.
+# 
+# RETURNS
+#  Returns the output generated by the CLI.
+
+
+function run_cli_command_at
+{
+  local port=${1:-9990}
+  local command=$2
+  run_cli_command_ip localhost $port $command 
+}
+
+# NAME
+#     run_cli_command_ip
+#
+# USAGE
+#     run_cli_command_ip <ip> <port> <command>
+#
+# DESCRIPTION
+#	  executes a command on a controller started at localhost <controller_port>. 
+#
+# PARAMETERS
+#	  PARAMETER: ip: The IP address where the management console is running.
+#	  PARAMETER: port: The port where the management console is running.
+#	  PARAMETER: command: The command that will be executed on a server. Put the command between double quotes.
+# 
+# RETURNS
+#  Returns the output generated by the CLI.
+
+function run_cli_command_ip
+{
+  local ip=${1:-localhost}
+  local port=${2:-9990}
+  local command=$3
+  ${jboss_home}/bin/jboss-cli.sh --user=jbossadm --password=JBoss@RedHat123 --connect --controller=$ip:$port -c --command="${command}"
+}
+
+# NAME
+#     run_cli_command_offline
+#
+# USAGE
+#     run_cli_command_offline <configuration_file> <command> 
+#
+# DESCRIPTION
+#	  executes a command on a configuration_file without starting the server
+#
+# PARAMETERS
+#	  PARAMETER: configuration_file: The filename located at /opt/jboss-eap-7.0/standalone/configuration with EAP standalone configuration.
+#	  PARAMETER: command: The command that will be executed on a server. Put the command between double quotes.
+# 
+# RETURNS
+#  Returns the output generated by the CLI.
+
+
+function run_cli_command_offline
+{
+  local configuration_file=$1
+  local command=$2
+  ${jboss_home}/bin/jboss-cli.sh <<EOF
+embed-server --server-config=$configuration_file
+$command
+exit
+EOF
+
+}
+
+# NAME
+#     stop_standalone
+#
+# USAGE
+#     stop_standalone <port>  
+#
+# DESCRIPTION
+#	  stops a standalone server on a localhost running on port <port>
+#
+# PARAMETERS
+#	  PARAMETER: port: Port where a Standalone server is running a management console.
+# 
+# RETURNS
+#  Returns the output generated by the CLI.
+function stop_standalone
+{
+  local port=${1:-9990}
+  run_cli_command_at $port ":shutdown"
+}
+
+# NAME
+#     stop_domain
+#
+# USAGE
+#     stop_domain <ip> <port>  
+#
+# DESCRIPTION
+#	  stops a domain controller on an <ip> running on port <port>
+#
+# PARAMETERS
+#	  PARAMETER: ip: IP address where a domain controller is running a management console.
+#	  PARAMETER: port: Port where a domain controller is running a management console.
+# 
+# RETURNS
+#  Returns the output generated by the CLI.
+
+function stop_domain
+{
+  local ip=${1:-localhost}
+  local port=${2:-9990}
+  stop_domain_host $ip $port master
+}
+
+
+# NAME
+#     stop_domain_host
+#
+# USAGE
+#     stop_domain_host <ip> <port> <host>  
+#
+# DESCRIPTION
+#	  stops a host controller named <host> using a domain controller running on an <ip> and on port <port>
+#
+# PARAMETERS
+#	  PARAMETER: ip: IP address where a domain controller is running a management console.
+#	  PARAMETER: port: Port where a domain controller is running a management console.
+#	  PARAMETER: host: Host controller name that should be stopped.
+# 
+# RETURNS
+#  Returns the output generated by the CLI.
+function stop_domain_host
+{
+  local ip=${1:-localhost}
+  local port=${2:-9990}
+  local host=$3
+  run_cli_command_ip $ip $port "shutdown --host=${host}"
+}
+
+
+# NAME
+#     stop_host
+#
+# USAGE
+#     stop_host <host_name> <ip> <port>
+#
+# DESCRIPTION
+#	  senda request to the domain controller running on <ip> and <port> to stop the host named <host_name> 
+#
+# PARAMETERS
+#	  PARAMETER: host_name: The host controller name that should be stopped.
+#	  PARAMETER: ip: The IP address where the domain controller is running.
+#	  PARAMETER: port: The port where the domain controller is running.
+# 
+# RETURNS
+# Return a string with the DMR notation
+
+
+
+function stop_host
+{
+  local host=${1}
+  local ip=${2:-localhost}
+  local port=${3:-9990}
+  run_cli_command_ip $ip $port "/host=${host}:shutdown"
+}
+
+# NAME
+#     does_server_group_exist
+#
+# USAGE
+#     does_server_group_exist <port> <ip> <server_group_name>
+#
+# DESCRIPTION
+#	  senda request to the domain controller running on <ip> and <port> to check if the server group called <server_group_name> exists 
+#
+# PARAMETERS
+#	  PARAMETER: ip: The IP address where the domain controller is running.
+#	  PARAMETER: port: The port where the domain controller is running.
+#	  PARAMETER: server_group_name: The server group name inquired.
+# 
+# RETURNS
+# 1 - If no server group is found
+# 0 - If the server group is found
+
+
+function does_server_group_exist
+{
+  local port=${1:-9990}
+  local ip=${2:-localhost}
+  local group=$3
+  local count=$(run_cli_command_ip $ip $port "/server-group=${group}:read-resource" | grep success | wc -l)
+  if [ $count -eq 0 ]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+
+# NAME
+#     start_standalone_config_dir
+#
+# USAGE
+#     start_standalone_config_dir <base_dir> <port_offset> <user>
+#
+# DESCRIPTION
+#	  start the standalone server using as the <base_dir> with all the directory used by the instance. Also it will use a port_offset where all the ports will be available and the user that will start the
+#     process. 
+#
+# PARAMETERS
+#	  PARAMETER: base_dir: The directory where all the files needed to start a standalone instance is stored.
+#	  PARAMETER: port_offset: Which is the port offset where EAP will be started.
+#	  PARAMETER: user: Which user will start the JBoss EAP standalone instance.
+# 
+# RETURNS
+# no return
+
+
+
+
+function start_standalone_config_dir
+{
+  local base_dir=$1
+  local port_offset=${2:-0}
+  local user=${3:-student}
+  if [ ! $port_offset -eq 0 ]; then
+    su - ${user} -c "nohup ${jboss_home}/bin/standalone.sh -Djboss.server.base.dir=${base_dir} -Djboss.socket.binding.port-offset=${port_offset}" &> /dev/null &
+  else
+	su - ${user} -c "nohup ${jboss_home}/bin/standalone.sh -Djboss.server.base.dir=${base_dir}" &> /dev/null &
+  fi
+}
+
+
+# NAME
+#     start_domain_file_config_dir
+#
+# USAGE
+#     start_domain_file_config_dir <config_file> <base_dir> <user>
+#
+# DESCRIPTION
+#	  start the domain controller using a custom <config_file> using as the <base_dir> with all the directory used by the instance. The <user> will be responsible for starting the
+#     process. 
+#
+# PARAMETERS
+#	  PARAMETER: config_file: Usually the host-master.xml.
+#	  PARAMETER: base_dir: The directory where all the files needed to start a managed domain instance is stored.
+#	  PARAMETER: user: Which user will start the JBoss EAP domain controller instance.
+# 
+# RETURNS
+# no return
+
+
+function start_domain_file_config_dir
+{
+  local config_file=${1:-host.xml}
+  local base_dir=$2
+  local user=${3:-student}
+# su - ${user} -c "nohup ${jboss_home}/bin/domain.sh --host-config=${config_file} -Djboss.domain.base.dir=${base_dir}" &> /dev/null &
+  sudo -u ${user} sh -c "cd /tmp/;nohup ${jboss_home}/bin/domain.sh --host-config=${config_file} -Djboss.domain.base.dir=${base_dir}" &> /dev/null &
+}
+
+function start_host_file_config_dir
+{
+  local ip=${1:-localhost}
+  local config_file=${2:-host.xml}
+  local base_dir=$3
+  local user=${4:-student}
+  su - ${user} -c "nohup ${jboss_home}/bin/domain.sh --host-config=${config_file} -Djboss.domain.base.dir=${base_dir} -Djboss.domain.master.address=${ip}" &> /dev/null &
+}
+
+function start_remote_host_controller
+{
+  local server=$1
+  local dc_ip=${2:-localhost}
+  local config_file=${3:-host-slave.xml}
+  local base_dir=$4
+  local user=${5:-student}
+  ssh -t -t root@${server} sudo -u ${user} nohup ${jboss_home}/bin/domain.sh --host-config=${config_file} -Djboss.domain.base.dir=${base_dir} -Djboss.domain.master.address=${dc_ip} &> /dev/null &
+}
+
+function start_standalone
+{
+  local user=${1:-student}
+  su - ${user} -c "nohup ${jboss_home}/bin/standalone.sh" &> /dev/null &
+}
+
+function domain_deploy_server_group
+{
+  local war=${1}
+  local group=${2}
+  local ip=${3:-localhost}
+  local port=${4:-9990}
+  run_cli_command_ip $ip $port "deploy ${war} --server-groups=${group}"
+}
+
+
+function domain_undeploy_server_group
+{
+  local war=${1}
+  local ip=${2:-localhost}
+  local port=${3:-9990}
+  run_cli_command_ip $ip $port "undeploy ${war} --all-relevant-server-groups"
+}
+
+function domain_remove_server
+{
+  local ip=${1:-localhost}
+  local server=$2
+  local host=$3
+  local port=${4,-9990}
+  run_cli_command_ip $ip $port "/host=${host}/server-config=${server}:remove"
+}
+
+function domain_remove_server_group
+{
+  local ip=${1:-localhost}
+  local servergroup=$2
+  local port=${3,-9990}
+  run_cli_command_ip $ip $port "/server-group=${servergroup}:remove"
+}
+
+function domain_stop_servers
+{
+  local ip=${1:-localhost}
+  local port=${2,-9990}
+  run_cli_command_ip $ip $port ":stop-servers(blocking=true)"
+}
+
+function check_pass
+{
+  local fail_count=$1
+  if [ $fail_count -eq 0 ]
+  then
+    pad "All checks passed: lab grade status is"
+    print_PASS
+  else
+    pad "At least one check failed: lab grade status is "
+    print_FAIL
+  fi
+}
+
+function remove_directory
+{
+  local dir_name=$1
+  rm -rf ${dir_name}
+  if [ -d "${dir_name}" ]
+  then
+    return 1
+  else
+    return 0
+  fi
+}
+
+function remove_directory_remote
+{
+  local server=$1
+  local dir_name=$2
+  ssh root@${server} rm -rf ${dir_name} 
+  if does_directory_exist_remote ${server} ${dir_name}; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+function does_directory_exist_remote
+{
+  local server=$1
+  local dir_name=$2
+  ssh root@${server} ls -la ${dir_name} &>/dev/null
+  if [ $? -eq 0 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+
+# NAME
+#     create_directory
+#
+# USAGE
+#     create_directory <dir_name> 
+#     create_directory <dir_name>  <dir_owner>
+#
+# DESCRIPTION
+#	  creates a directory on a local machine. 
+#
+# PARAMETERS
+#	  PARAMETER: dir_name: The directory name that should be created
+#	  PARAMETER: dir_owner: The owner of that directory. If not passed, it will consider the student user
+# 
+# RETURNS
+# 0 - If the directory was created successfully
+# 1 - If the directory was not created
+
+
+function create_directory
+{
+  local dir_name=$1
+  local owner=${2:-student}
+  remove_directory ${dir_name}
+  mkdir -p ${dir_name}
+  chown -R ${owner}:${owner} ${dir_name}
+  if [ -d "${dir_name}" ]
+  then
+    return 0
+  else
+    return 1
+  fi
+}
+
+
+
+# NAME
+#     create_directory_remote
+#
+# USAGE
+#     create_directory_remote <server> <dir_name> 
+#     create_directory_remote <server> <dir_name>  <dir_owner>
+#
+# DESCRIPTION
+#	  creates a directory on a local machine. 
+#
+# PARAMETERS
+#	  PARAMETER: server: The machine's name where the dir will be created
+#	  PARAMETER: dir_name: The directory name that should be created
+#	  PARAMETER: dir_owner: The owner of that directory. If not passed, it will consider the student user
+# 
+# RETURNS
+# 0 - If the directory was created successfully
+# 1 - If the directory was not created
+
+function create_directory_remote
+{
+  local server=$1
+  local dir_name=$2
+  local owner=${3:-student}
+  ssh root@${server} rm -rf ${dir_name}
+  ssh root@${server} mkdir -p ${dir_name}
+  ssh root@${server} chown -R ${owner}:${owner} ${dir_name}
+  if does_directory_exist_remote ${server} ${dir_name}
+  then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function change_owner
+{
+  local dir_name=$1
+  local owner=${2:-student}
+  chown -R ${owner}:${owner} ${dir_name}
+  if check_directory_owner ${dir_name} ${owner}
+  then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function change_owner_remote
+{
+  local server=$1
+  local dir_name=$2
+  local owner=${3:-student}
+  ssh root@${server} chown -R ${owner}:${owner} ${dir_name} 
+  if check_directory_owner_remote ${server} ${dir_name} ${owner}
+  then
+    return 0
+  else
+    return 1
+  fi
+}
+
+
+function does_directory_exists
+{
+  local base_dir=$1
+  local dir_name=$2
+  if [ -d "${base_dir}/${dir_name}" ]
+  then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function does_file_exist
+{
+   local path=$1
+   if [ -f "${path}" ]
+   then
+     return 0
+   else
+     return 1
+   fi
+}
+
+function does_basedir_standalone_exist_at
+{
+  local server_dir=$1
+  if does_directory_exists ${server_dir} configuration && does_directory_exists ${server_dir} deployments && does_directory_exists ${server_dir} lib ;
+  then
+	return 0
+  else
+	return 1
+  fi
+
+}
+
+function does_basedir_domain_exist_at
+{
+  local server_dir=$1
+  if does_directory_exists ${server_dir} configuration && does_directory_exists ${server_dir} tmp && does_directory_exists ${server_dir} data ;
+  then
+    return 0
+  else
+    return 1
+  fi
+
+}
+
+function does_basedir_domain_exist_remote
+{
+  local server=$1
+  local server_dir=$2
+  if does_directory_exist_remote ${server} ${server_dir}/configuration && does_directory_exist_remote ${server} ${server_dir}/tmp && does_directory_exist_remote ${server} ${server_dir}/data ; then
+    return 0
+  else
+    return 1
+  fi
+
+}
+
+
+# NAME
+#     copy_basedir_standalone_to
+#
+# USAGE
+#     copy_basedir_standalone_to <basedir>
+#     create_directory_remote <basedir> <owner>  <jboss_home>
+#
+# DESCRIPTION
+#	  copies the standalone directory from <jboss_home>, changes its ownership to <owner>.
+#
+# PARAMETERS
+#	  PARAMETER: basedir: The directory where the standalone directory will be stored
+#	  PARAMETER: owner: The owner of the directory where the standalone basedir is stored. If not passed it will consider the student user
+#	  PARAMETER: jboss_home: The owner of that directory. If not passed, it will consider the /opt/jboss-eap-7.0 directory
+# 
+# RETURNS
+# 0 - If the base dir was copied successfully
+# 1 - If the base dir was not copied successfully
+
+function copy_basedir_standalone_to
+{
+  local server_dir=$1
+  local owner=${2:-student}
+  local home=${3:-${jboss_home}}
+  if does_basedir_standalone_exist_at ${server_dir}; then
+	remove_directory ${server_dir}
+  fi
+  create_directory ${server_dir}
+  cp -R ${home}/standalone/configuration/ ${server_dir}
+  cp -R ${home}/standalone/deployments/ ${server_dir}
+  cp -R ${home}/standalone/lib/ ${server_dir}
+  chown -R ${owner}:${owner} ${server_dir}
+  if [ `ls ${server_dir} | wc -l` -gt 2 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+
+# NAME
+#     copy_basedir_domain_to
+#
+# USAGE
+#     copy_basedir_domain_to <basedir>
+#     copy_basedir_domain_to <basedir> <owner> <jboss_home>
+#
+# DESCRIPTION
+#	  copies the domain directory from <jboss_home>, changes its ownership to <owner>.
+#
+# PARAMETERS
+#	  PARAMETER: basedir: The directory where the standalone directory will be stored
+#	  PARAMETER: owner: The owner of the directory where the standalone basedir is stored. If not passed it will consider the student user
+#	  PARAMETER: jboss_home: The owner of that directory. If not passed, it will consider the /opt/jboss-eap-7.0 directory
+# 
+# RETURNS
+# 0 - If the base dir was copied successfully
+# 1 - If the base dir was not copied successfully
+
+function copy_basedir_domain_to
+{
+  local server_dir=$1
+  local owner=${2:-student}
+  local eap_home=${3:-${jboss_home}}
+  if does_basedir_domain_exist_at ${server_dir}; then
+    remove_directory ${server_dir}
+  fi
+  create_directory ${server_dir}
+  cp -R ${eap_home}/domain/configuration/ ${server_dir}
+  cp -R ${eap_home}/domain/data/ ${server_dir}
+  cp -R ${eap_home}/domain/tmp/ ${server_dir}
+  chown -R ${owner}:${owner} ${server_dir}
+  if [ `ls ${server_dir} | wc -l` -gt 2 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function copy_basedir_domain_to_remote
+{
+  local server=$1
+  local server_dir=$2
+  local owner=${3:-student}
+  local eap_home=${4:-${jboss_home}}
+  if does_basedir_domain_exist_remote ${server} ${server_dir}; then
+    remove_directory_remote ${server} ${server_dir}
+  fi
+  create_directory_remote ${server} ${server_dir}
+  ssh root@${server} cp -R ${eap_home}/domain/configuration/ ${server_dir}
+  ssh root@${server} cp -R ${eap_home}/domain/data/ ${server_dir}
+  ssh root@${server} cp -R ${eap_home}/domain/tmp/ ${server_dir}
+  ssh root@${server} chown -R ${owner}:${owner} ${server_dir}
+  if [ `ssh root@${server} ls ${server_dir} | wc -l` -gt 2 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function is_eap_welcome_page_available_at
+{
+  local port=$1
+  local ip=${2:-localhost}
+  local number=$(${curl} ${ip}:${port} | grep "EAP 7" | wc -l)
+  if [ `${curl} ${ip}:${port} | grep "EAP 7" | wc -l` -eq 2 ]; then
+	return 0
+  else
+	return 1
+  fi
+}
+
+function is_version_available_at
+{
+  local port=$1
+  local ip=${2:-localhost}
+  if [ `${curl} ${ip}:${port}/version/index.jsf | grep "EAP 7 Version App" | wc -l` -eq 1 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function is_version_not_available_at
+{
+  local port=$1
+  local ip=${2:-localhost}
+  if [ `${curl} ${ip}:${port}/version/index.jsf | grep "EAP 7 Version App" | wc -l` -eq 1 ]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+
+
+function is_example_available_at
+{
+  local port=$1
+  local ip=${2:-localhost}
+  if [ `${curl} ${ip}:${port}/example/index.jsf | grep "example.war" | wc -l` -eq 1 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function is_example_not_available_at
+{
+  local port=$1
+  local ip=${2:-localhost}
+  if [ `${curl} ${ip}:${port}/example/index.jsf | grep "example.war" | wc -l` -eq 1 ]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+
+function install_eap 
+{
+  if is_eap_installed; then
+	return 0
+  else
+    create_directory ${jb348_home}/installs
+	cd ${jb348_home}/installs
+    ${curl_save} ${materials}/install-eap/myinstall.xml
+    ${curl_save} ${materials}/install-eap/myinstall.xml.variables 
+
+    ${curl_save} ${eap_installer}
+    if java -jar ${installer_file} myinstall.xml -variablefile myinstall.xml.variables &>/dev/null
+	then
+	  chown -R jboss:jboss ${jboss_home}
+      return 0
+	else
+	  return 1
+	fi
+  fi
+}
+
+function create_user
+{
+  local username=$1
+  if ! user_exists ${username}; then
+    useradd -r ${username}
+  fi
+	return 0
+}
+
+function remove_user
+{
+  local username=$1
+  if ! user_exists ${username}; then
+	return 1
+  fi
+  userdel ${username}
+  return 0
+}
+
+function user_exists
+{
+  local username=$1
+  if id -u ${username} >/dev/null 2>&1; then
+	return 0
+  else
+	return 1
+  fi
+}
+
+function user_exists_remote
+{
+  local username=$1
+  local remote=$2
+  if ssh root@${remote} id -u ${username} >/dev/null 2>&1; then
+	return 0
+  else
+	return 1
+  fi
+}
+
+function create_user_remote
+{
+  local username=$1
+  local server=$2
+  if ! user_exists_remote ${username} ${server}; then
+    ssh root@${server} useradd -r ${username}
+  fi
+  return 0
+}
+
+function remove_user_remote
+{
+  local username=$1
+  local server=$2
+  if user_exists_remote ${username} ${server}; then
+    ssh root@${server} userdel ${username}
+	return 0
+  else
+	return 1
+  fi
+}
+
+function check_directory_owner
+{
+  local directory=$1
+  local owner=$2
+  local base_dir=$(echo ${directory} | sed 's:/[^/]*$::')
+  local dir=$(echo ${directory} | rev | cut -d/ -f1 | rev)
+  if does_directory_exists $base_dir $dir; then
+    local check_owner=$(stat -c "%U" ${directory} | grep ${owner} | wc -l)
+	if [ $check_owner -eq 1 ]; then
+	  return 0
+	else
+	  return 1
+	fi
+  else
+	return 1
+  fi
+}
+
+
+function check_directory_owner_remote
+{
+  local server=$1
+  local directory=$2
+  local owner=$3
+  if does_directory_exist_remote ${server} ${directory}; then
+    local check_owner=$(ssh root@${server} stat -c "%U" ${directory} | grep ${owner} | wc -l)
+	if [ $check_owner -eq 1 ]; then
+	  return 0
+    else
+	  return 1
+    fi
+  else
+	return 1
+  fi
+
+
+}
+
+
+function is_domain_set
+{
+  local base_dir=$1
+  if does_basedir_domain_exist_at ${base_dir}; then
+	local port_correct=$(cat ${base_dir}/configuration/host-slave.xml | grep "jboss.domain.master.port:9999" | wc -l)
+	if [ $port_correct -eq 1 ]; then
+	  return 0
+	else
+	  return 1
+	fi
+  else
+	return 1
+  fi
+}
+
+function is_host_set
+{
+  local base_dir=$1
+  if does_basedir_domain_exist_at ${base_dir}; then
+	local port_correct=$(cat ${base_dir}/configuration/host-slave.xml | grep "jboss.management.native.port:9999" | wc -l)
+	if [ $port_correct -eq 0 ]; then
+	  return 0
+	else
+	  return 1
+	fi
+  else
+	return 1
+  fi
+}
+
+function firewall_domain_setup
+{
+firewall-cmd --zone=public --add-port=9999/tcp --permanent &>/dev/null
+firewall-cmd --zone=public --add-port=9990/tcp --permanent &>/dev/null
+firewall-cmd --zone=public --add-port=8080/tcp --permanent &>/dev/null
+firewall-cmd --reload &>/dev/null
+}
+
+function install_eap_remote
+{
+  local server=$1
+  local install_answer=$2
+  ssh root@${server} java -jar /home/student/JB348/installs/${installer_file} ${install_answer} -variablefile ${install_answer}.variables
+}
+
+function install_eap_local
+{
+  local install_answer=$1
+  java -jar /home/student/JB348/installs/${installer_file} ${install_answer} -variablefile ${install_answer}.variables
+}
+
+
+function install_eap_on_host
+{
+  local server=$1
+  local SCRIPT_LOCATION=http://materials.example.com/review-lab/eap7-install.xml
+  local CONF_LOCATION=http://materials.example.com/review-lab/jboss-eap.conf
+  local SLAVE_CONF_LOCATION=http://materials.example.com/review-lab/jboss-eap-host.conf
+  local SERVICE_SCRIPT=http://materials.example.com/review-lab/jboss-eap-rhel.sh
+
+  echo "Installing EAP 7 on ${server}"
+
+ssh root@${server} curl -o ${installer_file} ${eap_installer}
+ssh root@${server} curl -o eap7-install.xml ${SCRIPT_LOCATION}
+ssh root@${server} curl -o eap7-install.xml.variables ${SCRIPT_LOCATION}.variables
+ssh root@${server} java -jar ${installer_file} eap7-install.xml -variablefile eap7-install.xml.variables
+
+ssh root@${server} echo 'JBOSS_HOME=/opt/jboss-eap-7.0' >> /home/student/.bashrc
+ssh root@${server} echo 'PATH=$PATH:$JBOSS_HOME/bin' >> /home/student/.bashrc
+ssh root@${server} echo 'export JBOSS_HOME PATH' >> /home/student/.bashrc
+ssh root@${server} chown -R student:student /home/student
+
+echo "Configuring EAP 7 to run as a service on ${server}"
+ssh root@${server} curl -o jboss-eap.conf ${SLAVE_CONF_LOCATION}
+ssh root@${server} mkdir -p /var/log/jboss
+ssh root@${server} mkdir -p /var/run/jboss-eap
+ssh root@${server} cp jboss-eap.conf /etc/default
+ssh root@${server} sed -i "s/127.0.0.1/0.0.0.0/g" /opt/jboss-eap-7.0/domain/configuration/domain.xml
+ssh root@${server} 'sed -i "s/c2xhdmVfdXNlcl9wYXNzd29yZA==/SkJvc3NAUmVkSGF0MTIz/g" /opt/jboss-eap-7.0/domain/configuration/host-slave.xml'
+ssh root@${server} 'sed -i "s/<remote security-realm=\"ManagementRealm\">/<remote username=\"jbossadm\" security-realm=\"ManagementRealm\">/g" /opt/jboss-eap-7.0/domain/configuration/host-slave.xml'
+ssh root@${server} curl -o /etc/init.d/jboss-eap ${SERVICE_SCRIPT}
+ssh root@${server} chmod 755 /etc/init.d/jboss-eap
+ssh root@${server} chkconfig --add jboss-eap
+ssh root@${server} chkconfig jboss-eap on
+
+ssh root@${server} adduser jboss
+ssh root@${server} chown -R jboss:jboss /opt/jboss-eap-7.0
+ssh root@${server} chown -R jboss:jboss /var/log/jboss
+ssh root@${server} chown -R jboss:jboss /var/run/jboss-eap
+
+echo "Disabling unauthenticated access to the CLI"
+ssh root@${server} chmod 600 /opt/jboss-eap-7.0/domain/tmp/auth
+ssh root@${server} chmod 600 /opt/jboss-eap-7.0/standalone/tmp/auth
+}
+# NAME
+#     download_version_war
+#
+# USAGE
+#     download_version_war <dest_directory>
+#
+# DESCRIPTION
+#	  Downloads the version.war application from a default location to the destination directory <dest_directory>. 
+#
+# PARAMETERS
+#	  PARAMETER: dest_directory: directory where the file will be downloaded.
+# 
+# RETURNS
+# no return
+
+
+function download_version_war
+{
+  local dest_directory=$1
+  
+  ${curl} -o ${dest_directory}/version.war http://content.example.com/eap7.0/x86_64/apps/version.war
+  chown student:student ${dest_directory}/version.war
+  local sum=$(md5sum ${dest_directory}/version.war | grep 147ce712766f739aff5067d5bb1d8caf | wc -l)
+  if [ $sum -eq 0 ]; then
+	echo "version.war is corrupted. Download it again from http://content.example.com/eap7.0/x86_64/apps/version.war"
+  fi
+}
+
+
+
+# NAME
+#     download_example_war
+#
+# USAGE
+#     download_example_war <dest_directory>
+#
+# DESCRIPTION
+#	  Downloads the example.war application from a default location to the destination directory <dest_directory>. 
+#
+# PARAMETERS
+#	  PARAMETER: dest_directory: directory where the file will be downloaded.
+# 
+# RETURNS
+# no return
+
+
+function download_example_war
+{
+  local dest_directory=$1
+  
+  ${curl} -o ${dest_directory}/example.war http://content.example.com/eap7.0/x86_64/apps/example.war
+  chown student:student ${dest_directory}/example.war
+  local sum=$(md5sum ${dest_directory}/example.war | grep c885d64075af630a5b4c671b66d0070a | wc -l)
+  if [ $sum -eq 0 ]; then
+	echo "example.war is corrupted. Download it again from http://content.example.com/eap7.0/x86_64/apps/example.war"
+  fi
+}
+
+
+# NAME
+#     download_welcome_war
+#
+# USAGE
+#     download_welcome_war <dest_directory>
+#
+# DESCRIPTION
+#	  Downloads the welcome.war application from a default location to the destination directory <dest_directory>. 
+#
+# PARAMETERS
+#	  PARAMETER: dest_directory: directory where the file will be downloaded.
+# 
+# RETURNS
+# no return
+
+
+function download_welcome_war
+{
+  local dest_directory=$1
+  
+  ${curl} -o ${dest_directory}/welcome.war http://content.example.com/eap7.0/x86_64/apps/welcome.war
+  chown student:student ${dest_directory}/welcome.war
+  local sum=$(md5sum ${dest_directory}/welcome.war | grep 21651d5fd0c0838d5d86b7e90a645444 | wc -l)
+  if [ $sum -eq 0 ]; then
+	echo "welcome.war is corrupted. Download it again from http://content.example.com/eap7.0/x86_64/apps/welcome.war"
+  fi
+}
+
+
+function download_application
+{
+  local app=$1
+  local dest_directory=$2
+
+  echo " · Download ${app} to "
+  pad " ${dest_directory}"
+
+  if ${curl} -o ${dest_directory}/${app} http://content.example.com/eap7.0/x86_64/apps/${app}
+  then
+    print_SUCCESS
+    chown student:student ${dest_directory}/${app}
+  else
+    print_FAIL
+  fi
+}
+
+
+function is_eap_running
+{
+  local standalone=$(ps -ef | grep "\[Standalone\]" | wc -l)
+  local process=$(ps -ef | grep "\[Process Controller\]" | wc -l)
+  local host=$(ps -ef | grep "\[Host Controller\]" | wc -l)
+  local server=$(ps -ef | grep "\[Server" | wc -l)
+  if [ $standalone -eq 1 ] ||
+	 [ $process -eq 1 ] ||
+	 [ $host -eq 1 ] ||
+	 [ $host -eq 1 ]; then
+    return 0
+  else
+	return 1
+  fi
+}
+
+
+# vim: ts=4 sw=2

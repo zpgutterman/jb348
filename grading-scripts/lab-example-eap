@@ -1,0 +1,129 @@
+#!/bin/bash
+#
+# Copyright 2015 Red Hat, Inc.
+#
+# NAME
+#     lab-standalone-instance - grading/setup script for DO276
+#
+# SYNOPSIS
+#     lab=standalone-instance {setup|grade|solve|reset}
+#
+#        setup   - configures 
+#        grade   - no grading done for this lab
+#        solve   - download 
+#        reset   - remove 
+#
+#     All functions only work on workstation
+#
+# DESCRIPTION
+#     This script does set up, solving and cleanup of the EAP installation for GE 2.2
+#
+# CHANGELOG
+#   * Tue Mar 22 2016 Zach Gutterman <zgutterm@redhat.com>
+#   - first commit for 2.2 grading script
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+# Initialize and set some variables
+run_as_root='true'
+
+target='workstation'
+
+runuser="runuser - student -c"
+curl='curl -sO'
+user="student"
+jb248_home="/home/${user}/JB248"
+labs="${jb248_home}/labs"
+materials='http://materials.example.com'
+contents='http://content.example.com'
+opt_dir="/opt"
+eap_install="${opt_dir}/jboss-eap-7.0"
+this='standalone-instance'
+lab_directory="${labs}/${this}"
+
+
+# This defines which subcommands are supported (solve, reset, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(setup grade solve reset)
+
+# Additional functions for this grading script
+
+function print_usage {
+  local problem_name=$(basename $0 | sed -e 's/^lab-//')
+  cat << EOF
+This script controls the setup and grading of this lab.
+Usage: lab ${problem_name} COMMAND
+       lab ${problem_name} -h|--help
+
+COMMAND is one of: ${valid_commands[@]}
+
+EOF
+}
+
+function lab_setup {
+  echo
+  echo "Setting up ${target} for demonstration:"
+  echo
+
+  echo "Verifying EAP is installed"
+  if is_eap_installed ; then
+    print_PASS
+  else
+    print FAIL
+    exit 1
+  fi
+  echo "Verifying EAP is started"
+  if is_eap_accessible_on_port 19990 ; then
+    print_PASS
+  else
+    print_FAIL
+    exit 1
+  fi
+  echo "EAP is started?"
+  if is_standalone_started_on_port 19990 ; then 
+    print_PASS
+  else
+    print_FAIL
+    exit 1
+  fi
+  echo "Stopping EAP"
+  if stop_standalone 19990 ; then
+   print_PASS
+  else 
+    print_FAIL
+  fi
+  
+}
+
+function lab_grade {
+
+  echo
+  echo "This is a demo and is not graded"
+  echo
+
+}
+
+function lab_solve {
+
+  lab_reset
+  lab_setup
+
+
+}
+
+function lab_reset {
+
+  echo
+  echo "This is a demo and is not graded"
+  echo
+
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/labtool.shlib
+source /usr/local/lib/labtool.jb248.shlib
+
+grading_main_program "$@"
