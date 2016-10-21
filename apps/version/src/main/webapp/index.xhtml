@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+	xmlns:ui="http://java.sun.com/jsf/facelets"
+	xmlns:f="http://java.sun.com/jsf/core"
+	xmlns:h="http://java.sun.com/jsf/html"
+	template="/WEB-INF/templates/default.xhtml">
+	<ui:define name="title">
+	Version App 2.0
+    </ui:define>
+	<ui:define name="application_name">
+    	Version
+    </ui:define>
+	<ui:define name="content">
+		<h1>EAP 7 Version App</h1>
+		<ul>
+			<li>This is a simple web app to demonstrate and verify the
+				successful deployment of a WAR.</li>
+			<li>This app also displays the version of JBoss EAP that it is
+				currently deployed on, which can be useful for verifying a specific
+				EAP deployment.</li>
+		</ul>
+		<br />
+		<p>
+			You are running the <b>1.0</b> version of this application.
+		</p>
+		<p>
+			This app is currently deployed on the following version of JBoss:
+			<strong><h:outputText value="#{version.version}" /></strong>
+		</p>
+                <!--
+		<p>
+			Server name: <strong><h:outputText value="#{version.serverName}" /></strong>
+		</p>
+		<p>
+			Server port: <strong><h:outputText value="#{version.serverPort}" /></strong>
+		</p>
+                -->
+                <p>
+                        The JBoss EAP node name is:
+                        <strong> <h:outputText value="#{version.jbossNodeName}" /></strong>.
+                </p>
+	</ui:define>
+</ui:composition>

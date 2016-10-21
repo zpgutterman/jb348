@@ -1,0 +1,27 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <artifactId>example</artifactId>
+  <packaging>war</packaging>
+  <name>Example Project</name>
+  <description>This is the example project</description>
+  <parent>
+  	<groupId>com.redhat.training</groupId>
+  	<artifactId>parent-pom</artifactId>
+  	<version>1.0</version>
+  	<relativePath>../pom.xml</relativePath>
+  </parent>
+  
+  <dependencies>
+
+        <!-- Import the JSF API, we use provided scope as the API is included in JBoss EAP -->
+        <dependency>
+            <groupId>org.jboss.spec.javax.faces</groupId>
+            <artifactId>jboss-jsf-api_2.2_spec</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+ 
+
+    </dependencies>
+  
+</project>

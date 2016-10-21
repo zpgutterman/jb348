@@ -1,0 +1,1 @@
+A simple welcome app that registers the root context as '/' for the entire EAP 7 server. When deployed, you can browse to http://localhost:8080/ and see the welcome page
